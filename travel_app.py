@@ -2,26 +2,28 @@ import pandas as pd
 import streamlit as st
 import urllib.parse
 import requests
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.preprocessing import LabelEncoder
 
 # ========================
 # OpenWeatherMap API
 # ========================
 API_KEY = "f591cb47f2a0cf363029e7c302d3202b"
 
+
 def get_current_weather(city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&units=metric&appid={API_KEY}"
     response = requests.get(url)
     if response.status_code == 200:
         data = response.json()
-        return {
+        weather = {
             "temperature": data["main"]["temp"],
             "humidity": data["main"]["humidity"],
             "wind_speed": data["wind"]["speed"],
             "description": data["weather"][0]["description"].title()
         }
-    return None
+        return weather
+    else:
+        return None
+
 
 # ========================
 # Load CSV
@@ -29,30 +31,19 @@ def get_current_weather(city):
 df = pd.read_csv("places.csv")
 
 # ========================
-# Encode Interest for ML
-# ========================
-le = LabelEncoder()
-df['Interest_enc'] = le.fit_transform(df['Interest'])
-
-# Features & target
-X = df[['Cost', 'Interest_enc']]
-y = df['Name']
-
-# Train Decision Tree
-model = DecisionTreeClassifier()
-model.fit(X, y)
-
-# ========================
-# Streamlit UI
+# App Title
 # ========================
 st.set_page_config(page_title="Travel Recommender", layout="wide")
-st.title("🌍 ML-Based Travel Recommender")
+st.title("🌍 Travel Recommender System")
 
+# ========================
+# User Inputs
+# ========================
 budget = st.number_input("Enter your budget (₹)", min_value=10000, value=12000)
 days = st.number_input("Enter number of days", min_value=1, value=3)
 
 # ========================
-# Session State
+# Session State for Next Recommendation
 # ========================
 if 'city_index' not in st.session_state:
     st.session_state.city_index = 0
@@ -60,15 +51,12 @@ if 'filtered_cities' not in st.session_state:
     st.session_state.filtered_cities = pd.DataFrame()
 
 # ========================
-# Recommend Button
+# Recommendation Button
 # ========================
 if st.button("Recommend Me!"):
-    # Encode interest values for prediction (we don't take interest input)
-    features = [[budget, val] for val in df['Interest_enc'].unique()]
-    predictions = model.predict(features)
-
-    # Filter predictions within ±2000 budget
+    # Filter cities with exact budget OR close to budget ±2000
     filtered = df[(df["Cost"] >= budget - 2000) & (df["Cost"] <= budget + 2000)]
+
     if filtered.empty:
         st.warning("No city matches your budget 😞")
         st.session_state.filtered_cities = pd.DataFrame()
@@ -77,7 +65,7 @@ if st.button("Recommend Me!"):
         st.session_state.city_index = 0
 
 # ========================
-# Show current recommendation
+# Show current city
 # ========================
 if not st.session_state.filtered_cities.empty:
     city_row = st.session_state.filtered_cities.iloc[st.session_state.city_index]
@@ -88,7 +76,7 @@ if not st.session_state.filtered_cities.empty:
     st.write(f"**Best Time to Visit:** {city_row['Best_Time']}")
     st.write(f"**Places to Visit:** {city_row['Plan']}")
 
-    # Weather
+    # ✅ Fetch real-time weather
     weather = get_current_weather(city_row['Name'])
     if weather:
         st.write(f"**Weather:** {weather['description']}, {weather['temperature']}°C 🌤️")
@@ -101,9 +89,10 @@ if not st.session_state.filtered_cities.empty:
     directions_link = "https://www.google.com/maps/dir/" + "/".join(directions_list)
     st.markdown(f"**Directions from current location:** [Click Here]({directions_link}) 🗺️", unsafe_allow_html=True)
 
+    # ========================
     # Next Recommendation Button
+    # ========================
     if st.button("Next Recommendation"):
         st.session_state.city_index += 1
         if st.session_state.city_index >= len(st.session_state.filtered_cities):
-            st.session_state.city_index = 0
-        st.experimental_rerun()
+            st.session_state.city_index = 0  # Loop back to first city
